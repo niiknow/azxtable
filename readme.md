@@ -14,7 +14,7 @@ Use Cases:
 * bulk logging - buffer log to insert 100 at a time by simply calling an API
     * set table name as logYYYYMM
     * tenant specific logs
-* query multiple tables logThisMonth,logLastMonth
+* time-series data - query multiple tables: table = 'logThisMonth,logLastMonth'
 
 
 ## Install
