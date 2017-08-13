@@ -27,7 +27,7 @@ const aztable = AzureTable.createClient({
 
 let azxtable;
 
-if (process.env.aztablealt) {
+if (process.env.azxtable) {
   const ac2 = parseConnectionString(process.env.azxtable);
   azxtable = AzureTable.createClient({
     accountUrl: ac2.TableEndpoint || `https://${ac2.AccountName}.table.core.windows.net/`,
@@ -41,7 +41,7 @@ function getParams(opts) {
   const params = {
     table: String(opts.table),
     tenantCode: opts.tenantCode || process.env.tenantCode || 'a',
-    partitionKey: opts.partitionKey || '_default',
+    pk: opts.pk || '_default',
     envCode: (process.env.envCode || 'prd').toUpperCase(),
     body: opts.body,
     $filter: opts.$filter,
@@ -51,7 +51,8 @@ function getParams(opts) {
     headers: opts.headers,
     nextpk: opts.nextpk,
     nextrk: opts.nextrk,
-    rowKey: opts.rowKey
+    rk: opts.rk,
+    idfield: opts.idfield || 'Id'
   };
 
   if (params.table.indexOf(',') > 0) {
@@ -76,13 +77,22 @@ function createTablePromise(myClient, tableName) {
 function createTableIfNotExists(tableName) {
   return new Promise(resolve => {
     // since this is batch, we just create table
-    console.log('creating table:', tableName);
+    console.log('creating table1:', tableName);
     const q1 = createTablePromise(aztable, tableName);
     if (azxtable) {
+      console.log('creating table2:', tableName);
       const q2 = createTablePromise(azxtable, tableName);
       return Promise.all([q1, q2]).then(resolve);
     }
     q1.then(resolve);
+  });
+}
+
+function batchCommit(myClient) {
+  return new Promise(resolve => {
+    myClient.commit((err, data) => {
+      resolve([err, data]);
+    });
   });
 }
 
@@ -99,9 +109,9 @@ function batchJsonRaw(body, params, resolve) {
     });
   }
   // validate partition key
-  if (!/[a-zA-Z0-9-_.~,! ]+/.test(params.partitionKey)) {
+  if (!/[a-zA-Z0-9-_.~,! ]+/.test(params.pk)) {
     body.errors.push({
-      message: `invalid PartitionKey ${params.partitionKey} value`
+      message: `invalid PartitionKey ${params.pk} value`
     });
   }
   // valid items
@@ -121,13 +131,13 @@ function batchJsonRaw(body, params, resolve) {
   if (body.errors <= 0) {
     // validate and prep each row
     body.items.forEach((item, i) => {
-      item.PartitionKey = params.partitionKey;
+      item.PartitionKey = params.pk;
       // console.log( 'one', item );
       if (!item.RowKey) {
-        body.idField = body.idField || 'Id';
-        item.RowKey = item[body.idField] || item.GTIN14 || item.UPC;
-        // console.log( 'two', item );
+        item.RowKey = item[params.idfield] || item.GTIN14 || item.UPC;
+        // console.log('two', params.idfield, item);
       }
+
       if (!item.RowKey || !/[a-zA-Z0-9-_.~,! ]+/.test(item.RowKey)) {
         body.errors.push({
           message: `${i} has invalid RowKey/Id ${item.RowKey}`
@@ -151,22 +161,10 @@ function batchJsonRaw(body, params, resolve) {
         }
       }
     });
+
     // commit if no errors
     if (body.errors <= 0) {
-      if (azxtableBatch) {
-        aztableBatch.commit(err => {
-          if (err) {
-            console.log('batchx result err:', err);
-            body.errors.push({
-              message: JSON.stringify(err)
-            });
-          }
-
-          // do nothing
-        });
-      }
-
-      aztableBatch.commit((err, data) => {
+      const handleCommit = (err, data) => {
         if (err) {
           console.log('batch result err:', err);
           body.errors.push({
@@ -179,10 +177,19 @@ function batchJsonRaw(body, params, resolve) {
         }
         params.errors = body.errors;
         resolve(params);
-      });
-      return;
+      };
+
+      if (azxtableBatch) {
+        const q1 = batchCommit(aztableBatch);
+        const q2 = batchCommit(azxtableBatch);
+        return Promise.all([q1, q2]).then(values => {
+          handleCommit(values[0][0], values[0][1]);
+        });
+      }
+      aztableBatch.commit(handleCommit);
     }
   }
+  console.log(body);
   // if it reach this point, it must have errored
   resolve(body);
 }
@@ -207,7 +214,7 @@ function batchCsv(opts) {
       noheader: false,
       delimiter: params.delimiter || ','
     };
-    if (csvopts.headers) {
+    if (params.headers) {
       csvopts.headers = params.headers.split(',');
       csvopts.noheader = true;
     }
@@ -301,8 +308,8 @@ function itemUpdate(opts) {
     const params = getParams(opts);
     // validate ids
     const item = params.body || {};
-    item.PartitionKey = params.partitionKey;
-    item.RowKey = params.rowKey || item.RowKey || item.Id || item.GTIN14 || item.UPC;
+    item.PartitionKey = params.pk;
+    item.RowKey = params.rk || item.RowKey || item.Id || item.GTIN14 || item.UPC;
 
     // console.log( item );
     aztable.insertOrMergeEntity(params.tableName, item, err => {
@@ -332,8 +339,8 @@ function itemDelete(opts) {
     const params = getParams(opts);
     // validate ids
     const item = {
-      PartitionKey: params.partitionKey,
-      RowKey: params.rowKey,
+      PartitionKey: params.pk,
+      RowKey: params.rk,
       __etag: '*'
     };
     aztable.deleteEntity(params.tableName, item, err => {

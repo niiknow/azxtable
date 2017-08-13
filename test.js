@@ -5,7 +5,7 @@ test('insert or update and delete', t => {
   const testKey = 'test' + (new Date()).getTime();
   const opts = {
     table: 'aztabletest',
-    rowKey: testKey,
+    rk: testKey,
     body: {
       value: 'hi'
     }
@@ -20,16 +20,14 @@ test('insert or update and delete', t => {
 });
 
 test('batchCsv', t => {
-  const testKey = 'test' + (new Date()).getTime();
   const opts = {
     table: 'aztabletest',
-    id: testKey,
     headers: 'Id,v2,v3',
     body: 'a,b,c\nd,e,f\ng,h,i\nj,k,l\nm,n,o'
   };
 
   return m.batchCsv(opts).then(body => {
-    t.not(body, undefined);
+    t.is(body.errors.length, 0);
   });
 });
 
