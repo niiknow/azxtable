@@ -4,7 +4,7 @@ import m from '.';
 test('insert or update and delete', t => {
   const testKey = 'test' + (new Date()).getTime();
   const opts = {
-    table: 'aztabletest',
+    table: 'aztabletestone',
     rk: testKey,
     body: {
       value: 'hi'

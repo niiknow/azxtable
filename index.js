@@ -70,7 +70,7 @@ function getParams(opts) {
 
 function createTablePromise(myClient, tableName) {
   return new Promise(resolve => {
-    myClient.createTable(tableName, true, resolve);
+    myClient.createTable(tableName, resolve);
   });
 }
 
@@ -242,7 +242,7 @@ function doQuery(myClient, tableName, opts) {
       };
       if (err) {
         if (err.code === 'TableNotFound') {
-          createTableIfNotExists(tableName).then(() => {
+          createTablePromise(myClient, tableName).then(() => {
             myClient.queryEntities(tableName, opts, handleQueryResult);
           });
           return;
