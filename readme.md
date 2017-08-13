@@ -1,6 +1,20 @@
-# azxtable [![Build Status](https://travis-ci.org/niiknow/azxtable.svg?branch=master)](https://travis-ci.org/niiknow/azxtable)
+# azxtable
+> azure node table helper with redundancy
 
-> azure node table with redundancy
+Features:
+- [x] multi-tenancy and environments
+- [x] provide redundancy by untilizing two different storage accounts
+- [x] enhance bulk import/batch operations
+- [x] auto create table if not exists
+- [x] utilizing redundancy to provide simultaneous query of two tables
+
+Use Cases:
+* host it on AWS Lambda or some nodejs serverless hosting
+* tenant specific storage with redundancy
+* bulk logging - buffer log to insert 100 at a time by simply calling an API
+    * set table name as logYYYYMM
+    * tenant specific logs
+* query multiple tables logThisMonth,logLastMonth
 
 
 ## Install
@@ -9,35 +23,28 @@
 $ npm install azxtable
 ```
 
+## helpers
+batchCsv, batchJson, query, itemUpdate, itemDelete
 
-## Usage
-
-```js
-const azxtable = require('azxtable');
-
-azxtable('unicorns');
-//=> 'unicorns & rainbows'
+## options
+```yml
+{
+    table: 'table1,table2',
+    tenantCode: options.tenantCode || process.env.tenantCode || 'a',
+    pk: options.pk || '_default',
+    rk: options.rk,
+    envCode: (process.env.envCode || 'prd').toUpperCase(),
+    body: options.body,
+    $filter: options.$filter,
+    $top: options.$top,
+    $select: options.$select,
+    delimiter: options.delimiter,
+    headers: options.headers,
+    nextpk: options.nextpk,
+    nextrk: options.nextrk,
+    idfield: options.idfield || 'Id'
+}
 ```
-
-
-## API
-
-### azxtable(input, [options])
-
-#### input
-
-Type: `string`
-
-Lorem ipsum.
-
-#### options
-
-##### foo
-
-Type: `boolean`<br>
-Default: `false`
-
-Lorem ipsum.
 
 
 ## MIT

@@ -77,10 +77,10 @@ function createTablePromise(myClient, tableName) {
 function createTableIfNotExists(tableName) {
   return new Promise(resolve => {
     // since this is batch, we just create table
-    console.log('creating table1:', tableName);
+    // console.log('creating table1:', tableName);
     const q1 = createTablePromise(aztable, tableName);
     if (azxtable) {
-      console.log('creating table2:', tableName);
+      // console.log('creating table2:', tableName);
       const q2 = createTablePromise(azxtable, tableName);
       return Promise.all([q1, q2]).then(resolve);
     }
@@ -233,7 +233,7 @@ function batchCsv(opts) {
 
 function doQuery(myClient, tableName, opts) {
   return new Promise(resolve => {
-    myClient.queryEntities(tableName, opts, (err, data, continuation) => {
+    const handleQueryResult = (err, data, continuation) => {
       // err is null
       // data contains the array of objects (entities)
       // continuation is undefined or two element array to be passed to next query
@@ -243,11 +243,7 @@ function doQuery(myClient, tableName, opts) {
       if (err) {
         if (err.code === 'TableNotFound') {
           createTableIfNotExists(tableName).then(() => {
-            rst.errors = [{
-              code: 'retry',
-              message: 'service temporarily unavailable, please try again'
-            }];
-            resolve(rst);
+            myClient.queryEntities(tableName, opts, handleQueryResult);
           });
           return;
         }
@@ -265,7 +261,9 @@ function doQuery(myClient, tableName, opts) {
 
       // console.log( 'query data:', rst );
       resolve(rst);
-    });
+    };
+
+    myClient.queryEntities(tableName, opts, handleQueryResult);
   });
 }
 
@@ -311,26 +309,24 @@ function itemUpdate(opts) {
     item.PartitionKey = params.pk;
     item.RowKey = params.rk || item.RowKey || item.Id || item.GTIN14 || item.UPC;
 
-    // console.log( item );
-    aztable.insertOrMergeEntity(params.tableName, item, err => {
+    const handleResult = err => {
       const rst = {
         errors: []
       };
       if (err) {
         if (err.code === 'TableNotFound') {
           createTableIfNotExists(params.tableName).then(() => {
-            rst.errors = [{
-              code: 'retry',
-              message: 'service temporarily unavailable, please try again'
-            }];
-            resolve(rst);
+            aztable.insertOrMergeEntity(params.tableName, item, handleResult);
           });
           return;
         }
         rst.errors = [err];
       }
       resolve(rst);
-    });
+    };
+
+    // console.log( item );
+    aztable.insertOrMergeEntity(params.tableName, item, handleResult);
   });
 }
 
@@ -348,17 +344,9 @@ function itemDelete(opts) {
         errors: []
       };
       if (err) {
-        if (err.code === 'TableNotFound') {
-          createTableIfNotExists(params.tableName).then(() => {
-            rst.errors = [{
-              code: 'retry',
-              message: 'service temporarily unavailable, please try again'
-            }];
-            resolve(rst);
-          });
-          return;
+        if (err.code !== 'TableNotFound') {
+          rst.errors.push(err);
         }
-        rst.errors = [err];
         rst.message = 'failed';
       }
       resolve(rst);
