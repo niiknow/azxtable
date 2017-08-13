@@ -1,70 +1,95 @@
 const AzureTable = require('azure-table-node');
 const csv = require('csvtojson');
 
-const ac1 = process.env.aztable.split(':');
-const defaultClient = AzureTable.createClient({
-  accountUrl: `http://${ac1[0]}.table.core.windows.net/`,
-  accountName: ac1[0],
-  accountKey: ac1[1]
-});
-
-/* let altClient;
-
-if (process.env.aztablealt) {
-  const ac2 = process.env.aztablealt.split(':');
-
-  altClient = AzureTable.createClient({
-    accountUrl: `http://${ac2[0]}.table.core.windows.net/`,
-    accountName: ac2[0],
-    accountKey: ac2[1]
+function parseConnectionString(cstr) {
+  const parts = cstr.split(';');
+  const dict = {};
+  parts.forEach(item => {
+    const kv = item.split('=');
+    dict[kv[0]] = kv[1];
   });
-} */
-
-function getParams(request) {
-  request.queryString = request.queryString || {};
-  request.env = request.env || {};
-  const params = {
-    originalName: request.pathParams.tableName,
-    tenantCode: request.queryString.tenantCode || request.env.tenantCode || 'a',
-    partitionKey: request.queryString.partitionKey || '_default',
-    envCode: (request.env.envCode || 'prd').toUpperCase()
-  };
-
-  if (!params.originalName && request.queryString.table) {
-    const tables = request.queryString.table.split(',');
-    params.originalName = tables[0];
-    if (tables[1]) {
-      params.originalName2 = tables[1];
-      params.tableName2 = `${params.tenantCode}${params.envCode}${params.originalName2}`;
+  if (dict.TableEndpoint) {
+    if (!/\/+$/.test(dict.TableEndpoint)) {
+      dict.TableEndpoint += '/';
     }
   }
-  params.tableName = `${params.tenantCode}${params.envCode}${params.originalName}`;
+
+  return dict;
+}
+
+// handle ac1.SharedAccessSignature property?
+const ac1 = parseConnectionString(process.env.aztable);
+const aztable = AzureTable.createClient({
+  accountUrl: ac1.TableEndpoint || `https://${ac1.AccountName}.table.core.windows.net/`,
+  accountName: ac1.AccountName,
+  accountKey: ac1.AccountKey
+});
+
+let azxtable;
+
+if (process.env.aztablealt) {
+  const ac2 = parseConnectionString(process.env.azxtable);
+  azxtable = AzureTable.createClient({
+    accountUrl: ac2.TableEndpoint || `https://${ac2.AccountName}.table.core.windows.net/`,
+    accountName: ac2.AccountName,
+    accountKey: ac2.AccountKey
+  });
+}
+
+function getParams(opts) {
+  opts = opts || {};
+  const params = {
+    table: String(opts.table),
+    tenantCode: opts.tenantCode || process.env.tenantCode || 'a',
+    partitionKey: opts.partitionKey || '_default',
+    envCode: (process.env.envCode || 'prd').toUpperCase(),
+    body: opts.body,
+    $filter: opts.$filter,
+    $top: opts.$top,
+    $select: opts.$select,
+    delimiter: opts.delimiter,
+    headers: opts.headers,
+    nextpk: opts.nextpk,
+    nextrk: opts.nextrk,
+    rowKey: opts.rowKey
+  };
+
+  if (params.table.indexOf(',') > 0) {
+    const tables = params.table.split(',');
+    params.table = tables[0].trim();
+    if (tables[1]) {
+      params.table2 = tables[1].trim();
+      params.tableName2 = `${params.tenantCode}${params.envCode}${params.table2}`;
+    }
+  }
+
+  params.tableName = `${params.tenantCode}${params.envCode}${params.table}`;
   return params;
 }
 
-function handleError(error, tableName, tableClient) {
-  console.log(error);
-  return new Promise((resolve, reject) => {
-    if (error) {
-      if (error.code === 'TableNotFound') {
-        console.log('creating table:', tableName);
-        tableClient.createTable(tableName, true, err => {
-          if (err) {
-            console.log(err);
-            return reject(err);
-          }
-          // created table
-          resolve();
-        });
-        return;
-      }
+function createTablePromise(myClient, tableName) {
+  return new Promise(resolve => {
+    myClient.createTable(tableName, true, resolve);
+  });
+}
+
+function createTableIfNotExists(tableName) {
+  return new Promise(resolve => {
+    // since this is batch, we just create table
+    console.log('creating table:', tableName);
+    const q1 = createTablePromise(aztable, tableName);
+    if (azxtable) {
+      const q2 = createTablePromise(azxtable, tableName);
+      return Promise.all([q1, q2]).then(resolve);
     }
-    reject();
+    q1.then(resolve);
   });
 }
 
 function batchJsonRaw(body, params, resolve) {
-  const batchClient = defaultClient.startBatch();
+  const aztableBatch = aztable.startBatch();
+  const azxtableBatch = azxtable ? azxtable.startBatch() : null;
+
   body.errors = body.errors || [];
   body.items = body.items || [];
   // validate table name
@@ -113,17 +138,35 @@ function batchJsonRaw(body, params, resolve) {
       if (item.RowKey) {
         if (item.delete) {
           item.__etag = '*';
-          batchClient.deleteEntity(params.tableName, item);
+          aztableBatch.deleteEntity(params.tableName, item);
+          if (azxtableBatch) {
+            azxtableBatch.deleteEntity(params.tableName, item);
+          }
         } else {
           // console.log( 'insert', item );
-          batchClient.insertOrMergeEntity(params.tableName, item);
+          aztableBatch.insertOrMergeEntity(params.tableName, item);
+          if (azxtableBatch) {
+            azxtableBatch.insertOrMergeEntity(params.tableName, item);
+          }
         }
       }
     });
     // commit if no errors
     if (body.errors <= 0) {
-      //  console.log( 'enter' );
-      batchClient.commit((err, data) => {
+      if (azxtableBatch) {
+        aztableBatch.commit(err => {
+          if (err) {
+            console.log('batchx result err:', err);
+            body.errors.push({
+              message: JSON.stringify(err)
+            });
+          }
+
+          // do nothing
+        });
+      }
+
+      aztableBatch.commit((err, data) => {
         if (err) {
           console.log('batch result err:', err);
           body.errors.push({
@@ -144,52 +187,63 @@ function batchJsonRaw(body, params, resolve) {
   resolve(body);
 }
 
-function batchJson(request) {
+function batchJson(opts) {
   return new Promise(resolve => {
-    const params = getParams(request);
+    const params = getParams(opts);
     // since this is batch, we just create table
-    defaultClient.createTable(params.tableName, true, () => {
-      batchJsonRaw(request.body, params, resolve);
+    createTableIfNotExists(params.tableName).then(() => {
+      batchJsonRaw(params.body, params, resolve);
     });
   });
 }
 
-function batchCsv(request) {
+function batchCsv(opts) {
   return new Promise(resolve => {
-    const body = {
+    const parsedBody = {
       items: []
     };
-    const params = getParams(request);
-    const opts = {
+    const params = getParams(opts);
+    const csvopts = {
       noheader: false,
-      delimiter: request.queryString.delimiter || ','
+      delimiter: params.delimiter || ','
     };
-    if (request.queryString.headers) {
-      opts.headers = request.queryString.headers.split(',');
-      opts.noheader = true;
-      // console.log( 'opts', opts );
+    if (csvopts.headers) {
+      csvopts.headers = params.headers.split(',');
+      csvopts.noheader = true;
     }
-    // since this is batch, we just create table
-    defaultClient.createTable(params.tableName, true, () => {
+
+    createTableIfNotExists(params.tableName).then(() => {
       // parse csv
-      csv(opts).fromString(request.body).on('json', jsonObj => {
-        body.items.push(jsonObj);
+      csv(csvopts).fromString(params.body).on('json', jsonObj => {
+        parsedBody.items.push(jsonObj);
       }).on('done', () => {
         // resolve here
-        batchJsonRaw(body, params, resolve);
+        batchJsonRaw(parsedBody, params, resolve);
       });
     });
   });
 }
 
-function doQuery(client, tableName, opts) {
+function doQuery(myClient, tableName, opts) {
   return new Promise(resolve => {
-    client.queryEntities(tableName, opts, (err, data, continuation) => {
+    myClient.queryEntities(tableName, opts, (err, data, continuation) => {
       // err is null
       // data contains the array of objects (entities)
       // continuation is undefined or two element array to be passed to next query
-      const rst = {};
+      const rst = {
+        errors: []
+      };
       if (err) {
+        if (err.code === 'TableNotFound') {
+          createTableIfNotExists(tableName).then(() => {
+            rst.errors = [{
+              code: 'retry',
+              message: 'service temporarily unavailable, please try again'
+            }];
+            resolve(rst);
+          });
+          return;
+        }
         rst.errors = [err];
       } else {
         if (data) {
@@ -201,51 +255,71 @@ function doQuery(client, tableName, opts) {
           rst.nextrk = continuation[1];
         }
       }
+
       // console.log( 'query data:', rst );
       resolve(rst);
     });
   });
 }
 
-function query(request) {
+function query(opts) {
   return new Promise(resolve => {
-    const params = getParams(request);
-    const opts = {
-      query: request.queryString.$filter,
-      limitTo: request.queryString.$top
+    const params = getParams(opts);
+    const localopts = {
+      query: params.$filter,
+      limitTo: params.$top
     };
-    if (request.queryString.$select) {
-      opts.onlyFields = request.queryString.$select.split(',');
+    if (params.$select) {
+      localopts.onlyFields = params.$select.split(',');
     }
-    if (request.queryString.nextpk && request.queryString.nextrk) {
-      opts.continuation = [request.queryString.nextpk, request.queryString.nextrk];
+    if (params.nextpk && params.nextrk) {
+      localopts.continuation = [params.nextpk, params.nextrk];
     }
-    const q1 = doQuery(defaultClient, params.tableName, opts);
-    /*
+    const q1 = doQuery(aztable, params.tableName, localopts);
+
+    // also query from tableName2
     if (params.tableName2) {
-      const q2 = doQuery(defaultClient, params.tableName2, opts);
-    } */
-    Promise.all([q1]).then(values => {
+      // use alternative account for performance, if available
+      const q2 = doQuery(azxtable || aztable, params.tableName2, opts);
+
+      return Promise.all([q1, q2]).then(values => {
+        // console.log(values);
+        values[0].azxtable = values[1];
+        resolve(values[0]);
+      });
+    }
+
+    return Promise.all([q1]).then(values => {
       // console.log(values);
       resolve(values[0]);
     });
   });
 }
 
-function itemUpdate(request) {
+function itemUpdate(opts) {
   return new Promise(resolve => {
-    const params = getParams(request);
+    const params = getParams(opts);
     // validate ids
-    const item = request.body || {};
+    const item = params.body || {};
     item.PartitionKey = params.partitionKey;
-    item.RowKey = request.pathParams.id || item.RowKey || item.Id || item.GTIN14 || item.UPC;
+    item.RowKey = params.rowKey || item.RowKey || item.Id || item.GTIN14 || item.UPC;
+
     // console.log( item );
-    defaultClient.insertOrMergeEntity(params.tableName, item, err => {
+    aztable.insertOrMergeEntity(params.tableName, item, err => {
       const rst = {
         errors: []
       };
       if (err) {
-        handleError(err, params.tableName, defaultClient);
+        if (err.code === 'TableNotFound') {
+          createTableIfNotExists(params.tableName).then(() => {
+            rst.errors = [{
+              code: 'retry',
+              message: 'service temporarily unavailable, please try again'
+            }];
+            resolve(rst);
+          });
+          return;
+        }
         rst.errors = [err];
       }
       resolve(rst);
@@ -253,21 +327,30 @@ function itemUpdate(request) {
   });
 }
 
-function itemDelete(request) {
+function itemDelete(opts) {
   return new Promise(resolve => {
-    const params = getParams(request);
+    const params = getParams(opts);
     // validate ids
     const item = {
       PartitionKey: params.partitionKey,
-      RowKey: request.pathParams.id,
+      RowKey: params.rowKey,
       __etag: '*'
     };
-    defaultClient.deleteEntity(params.tableName, item, err => {
+    aztable.deleteEntity(params.tableName, item, err => {
       const rst = {
         errors: []
       };
       if (err) {
-        handleError(err, params.tableName, defaultClient);
+        if (err.code === 'TableNotFound') {
+          createTableIfNotExists(params.tableName).then(() => {
+            rst.errors = [{
+              code: 'retry',
+              message: 'service temporarily unavailable, please try again'
+            }];
+            resolve(rst);
+          });
+          return;
+        }
         rst.errors = [err];
         rst.message = 'failed';
       }
