@@ -178,7 +178,6 @@ class AzxTable {
 
     // no error
     if (body.errors <= 0) {
-      console.log('hi');
       // validate and prep each row
       body.items.forEach((item, i) => {
         item.PartitionKey = params.pk;
@@ -325,7 +324,7 @@ class AzxTable {
       item.PartitionKey = params.pk;
       item.RowKey = params.rk || item.RowKey || item.Id || item.GTIN14 || item.UPC;
 
-      const handleResult = err => {
+      const handleResult = (err, cb) => {
         const rst = {
           errors: []
         };
@@ -338,11 +337,24 @@ class AzxTable {
           }
           rst.errors = [err];
         }
-        resolve(rst);
+        cb(rst);
       };
 
       // console.log( item );
-      this.azxclient.insertOrMergeEntity(params.tableName, item, handleResult);
+      if (this.azxclient2) {
+        const q1 = new Promise(resolve => {
+          this.azxclient.insertOrMergeEntity(params.tableName, item, err => handleResult(err, resolve));
+        });
+        const q2 = new Promise(resolve => {
+          this.azxclient2.insertOrMergeEntity(params.tableName, item, err => handleResult(err, resolve));
+        });
+        return Promise.all([q1, q2]).then(values => {
+          // console.log(values);
+          values[0].azxclient2 = values[1];
+          resolve(values[0]);
+        });
+      }
+      this.azxclient.insertOrMergeEntity(params.tableName, item, err => handleResult(err, resolve));
     });
   }
 
@@ -355,7 +367,7 @@ class AzxTable {
         RowKey: params.rk,
         __etag: '*'
       };
-      this.azxclient.deleteEntity(params.tableName, item, err => {
+      const handleResult = (err, cb) => {
         const rst = {
           errors: []
         };
@@ -365,8 +377,24 @@ class AzxTable {
           }
           rst.message = 'failed';
         }
-        resolve(rst);
-      });
+        cb(rst);
+      };
+
+      if (this.azxclient2) {
+        const q1 = new Promise(resolve => {
+          this.azxclient.deleteEntity(params.tableName, item, err => handleResult(err, resolve));
+        });
+        const q2 = new Promise(resolve => {
+          this.azxclient2.deleteEntity(params.tableName, item, err => handleResult(err, resolve));
+        });
+        return Promise.all([q1, q2]).then(values => {
+          // console.log(values);
+          values[0].azxclient2 = values[1];
+          resolve(values[0]);
+        });
+      }
+
+      this.azxclient.deleteEntity(params.tableName, item, err => handleResult(err, resolve));
     });
   }
 }
