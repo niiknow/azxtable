@@ -23,6 +23,14 @@ Use Cases:
 $ npm install azxtable
 ```
 
+## Usage
+```
+import AzxTable from 'azxtable';
+let azxtable = new AzxTable({
+    azxtable: 'connection string', 
+    azxtable2: 'connection string2'
+});
+```
 ## helpers
 batchCsv, batchJson, query, itemUpdate, itemDelete
 
@@ -33,7 +41,7 @@ batchCsv, batchJson, query, itemUpdate, itemDelete
     tenantCode: options.tenantCode || process.env.tenantCode || 'a',
     pk: options.pk || '_default',
     rk: options.rk,
-    envCode: (process.env.envCode || 'prd').toUpperCase(),
+    envCode: (options.envCode || process.env.envCode || 'prd').toUpperCase(),
     body: options.body,
     $filter: options.$filter,
     $top: options.$top,

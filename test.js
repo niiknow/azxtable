@@ -1,5 +1,7 @@
 import test from 'ava';
-import m from '.';
+import AzxTable from '.';
+
+const m = new AzxTable();
 
 test('insert or update and delete', t => {
   const testKey = 'test' + (new Date()).getTime();
