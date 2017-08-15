@@ -85,8 +85,8 @@ class AzxTable {
       accountKey: ac1.AccountKey
     });
 
-    if (opts.azxtable) {
-      const ac2 = parseConnectionString(opts.azxtable);
+    if (opts.azxtable2) {
+      const ac2 = parseConnectionString(opts.azxtable2);
       this.azxclient2 = AzureTable.createClient({
         accountUrl: ac2.TableEndpoint || `https://${ac2.AccountName}.table.core.windows.net/`,
         accountName: ac2.AccountName,

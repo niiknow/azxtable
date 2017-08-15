@@ -1,6 +1,6 @@
 {
   "name": "azxtable",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "azure node table with redundancy",
   "license": "MIT",
   "repository": "niiknow/azxtable",
