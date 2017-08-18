@@ -331,7 +331,7 @@ class AzxTable {
         if (err) {
           if (err.code === 'TableNotFound') {
             this.createTableIfNotExists(params.tableName).then(() => {
-              this.azxclient.insertOrMergeEntity(params.tableName, item, handleResult);
+              return this.azxclient.insertOrMergeEntity(params.tableName, item, err => handleResult(err, cb));
             });
             return;
           }
